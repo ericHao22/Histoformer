@@ -1,5 +1,4 @@
 import os
-import cv2
 import numpy as np
 import torch
 import torch.nn as nn
@@ -7,18 +6,21 @@ import torch.nn.functional as F
 import skimage.io
 from torch.utils.data import Dataset, DataLoader
 
+def list_file_paths(directory):
+    file_list = []
+    for root, dirs, files in os.walk(directory):
+        for file in sorted(files):
+            file_list.append(os.path.join(root, file))
+    return file_list
 
-path = 'data/data_Ucolor/input_train_800/'
-img_files = os.listdir(path) #所有圖片的檔名
-img_path = [os.path.join("./data/data_Ucolor/input_train_800/",i) for i in img_files ]
+train_dir = './data/DTB70_Haze/train/'
+train_paths = list_file_paths(train_dir)
 
-path1 = 'data/data_Ucolor/gt_train_800/'
-img_files1 = os.listdir(path1) #所有圖片的檔名
-img_path1 = [os.path.join("./data/data_Ucolor/gt_train_800/",i) for i in img_files1 ]
+gt_dir = './data/DTB70_Haze/gt/'
+gt_paths = list_file_paths(gt_dir)
 
-path2 = 'data/data_Ucolor/input_test_800/'
-img_files2 = os.listdir(path2) #所有圖片的檔名
-img_path2 = [os.path.join("./data/data_Ucolor/input_test_800/",i) for i in img_files2 ]
+test_dir = './data/DTB70_Haze/test/'
+test_paths = list_file_paths(test_dir)
 
 def histogram_loader(path):
     image = skimage.io.imread(path)
@@ -36,8 +38,8 @@ class trainset(Dataset):
     def __init__(self):
         self.histogram_loader = histogram_loader
 
-        self.images = img_path
-        self.label = img_path1
+        self.images = train_paths
+        self.label = gt_paths
 
     def __getitem__(self, index):
 
@@ -62,8 +64,8 @@ class valset(Dataset):
     def __init__(self):
         self.histogram_loader = histogram_loader
 
-        self.images = img_path2
-        self.label = img_path2
+        self.images = test_paths
+        self.label = test_paths
 
     def __getitem__(self, index):
 
@@ -87,8 +89,8 @@ class testset(Dataset):
     def __init__(self):
         self.histogram_loader = histogram_loader
 
-        self.images = img_path2
-        self.label = img_path2
+        self.images = test_paths
+        self.label = test_paths
 
     def __getitem__(self, index):
 
