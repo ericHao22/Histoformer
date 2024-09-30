@@ -27,7 +27,7 @@ parser.add_argument('--epochs', type=int, default=100, help='the starting epoch 
 parser.add_argument('--lr', type=float, default=0.0002, help='initial learning rate')
 parser.add_argument('--weight_decay', type=float, default=0.02, help='weight decay')
 
-parser.add_argument('--test_dir', type=str, default ='./data/DTB70_Haze/test/',  help='dir of test data')
+parser.add_argument('--test_dir', type=str, default ='./data/Drone-Haze/test/',  help='dir of test data')
 
 # args for Histoformer
 parser.add_argument('--norm_layer', type=str, default ='nn.LayerNorm', help='normalize layer in transformer')
@@ -35,8 +35,8 @@ parser.add_argument('--embed_dim', type=int, default=32, help='dim of emdeding f
 parser.add_argument('--token_projection', type=str,default='linear', help='linear/conv token projection')
 parser.add_argument('--token_mlp', type=str,default='TwoDCFF', help='TwoDCFF/ffn token mlp')
 
-parser.add_argument('--save_dir', type=str, default ='./checkpoints_new/',  help='save dir')
-parser.add_argument('--save_image_dir', type=str, default ='./results/',  help='save image dir')
+parser.add_argument('--save_dir', type=str, default ='./checkpoints/onlyinter/',  help='save dir')
+parser.add_argument('--save_image_dir', type=str, default ='./results/Drone-Haze/',  help='save image dir')
 
 opt = parser.parse_args()
 
@@ -55,7 +55,6 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 time_list = []
 with torch.no_grad():  #如果沒有這行，那下面在取值的時候要用.detach().numpy()
     for i,(inputs, labels, ori_img) in enumerate(testloader):
-        filename = os.path.basename(ori_img[0])
         inputs = inputs.to(device)
         labels = labels.to(device)
         
@@ -83,4 +82,12 @@ with torch.no_grad():  #如果沒有這行，那下面在取值的時候要用.d
         img_gan = img_gan.numpy().transpose((0, 2, 3, 1))
         img_gan = img_gan[0, :, :, :]*255.
         print(ori_img[0][53:],img_gan.shape)
-        cv2.imwrite(os.path.join(opt.save_image_dir, filename), img_gan) #[34:]可能會要根據路徑的長度做更改
+        
+        current_dirname = os.path.dirname(ori_img[0]).replace(os.path.join(opt.test_dir, 'input/'), '')
+        save_dirname = os.path.join(opt.save_image_dir, current_dirname)
+
+        if not os.path.exists(save_dirname):
+            os.makedirs(save_dirname)
+
+        filename = os.path.basename(ori_img[0])
+        cv2.imwrite(os.path.join(save_dirname, filename), img_gan) #[34:]可能會要根據路徑的長度做更改
