@@ -19,9 +19,6 @@ train_paths = list_file_paths(train_dir)
 gt_dir = './data/DTB70_Haze/gt/'
 gt_paths = list_file_paths(gt_dir)
 
-test_dir = './data/DTB70_Haze/test/'
-test_paths = list_file_paths(test_dir)
-
 def histogram_loader(path):
     image = skimage.io.imread(path)
     R_hist, R_bins = np.histogram(image[:, :, 0], bins=256, range=(0, 256)) # R_hist.shape = (256,)
@@ -60,9 +57,10 @@ class trainset(Dataset):
         return len(self.images)
 
 class testset(Dataset):
-    def __init__(self):
+    def __init__(self, test_dir):
         self.histogram_loader = histogram_loader
 
+        test_paths = list_file_paths(os.path.join(test_dir, 'input'))
         self.images = test_paths
         self.label = test_paths
 
@@ -89,8 +87,8 @@ def get_training_set():
 	
 	return trainloader
 
-def get_test_set():
-	test_data  = testset()
+def get_test_set(test_dir):
+	test_data  = testset(test_dir)
 	testloader = DataLoader(test_data, batch_size=1,shuffle=False)
 	
 	return testloader

@@ -27,6 +27,8 @@ parser.add_argument('--epochs', type=int, default=100, help='the starting epoch 
 parser.add_argument('--lr', type=float, default=0.0002, help='initial learning rate')
 parser.add_argument('--weight_decay', type=float, default=0.02, help='weight decay')
 
+parser.add_argument('--test_dir', type=str, default ='./data/DTB70_Haze/test/',  help='dir of test data')
+
 # args for Histoformer
 parser.add_argument('--norm_layer', type=str, default ='nn.LayerNorm', help='normalize layer in transformer')
 parser.add_argument('--embed_dim', type=int, default=32, help='dim of emdeding features')
@@ -48,7 +50,7 @@ checkpoint_net_g= torch.load(os.path.join(opt.save_dir,'Histoformer-PQR_netG_288
 model.load_state_dict(checkpoint['state_dict'])
 net_g.load_state_dict(checkpoint_net_g['state_dict'])
 
-testloader= get_test_set()
+testloader= get_test_set(opt.test_dir)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 time_list = []
 with torch.no_grad():  #如果沒有這行，那下面在取值的時候要用.detach().numpy()
