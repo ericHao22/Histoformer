@@ -59,32 +59,6 @@ class trainset(Dataset):
     def __len__(self):
         return len(self.images)
 
-
-class valset(Dataset):
-    def __init__(self):
-        self.histogram_loader = histogram_loader
-
-        self.images = test_paths
-        self.label = test_paths
-
-    def __getitem__(self, index):
-
-        single_img = self.images[index]
-        single_label = self.label[index]
-        img_hist = self.histogram_loader(single_img)
-        label_hist = self.histogram_loader(single_label)
-        img_hist = torch.Tensor(img_hist)
-        label_hist = torch.Tensor(label_hist)
-
-        single_img_np = self.images[index]        
-        single_label_np = self.label[index]
-        
-        return img_hist, label_hist,single_img_np, single_label_np 
-
-    def __len__(self):
-        return len(self.images)
-
-
 class testset(Dataset):
     def __init__(self):
         self.histogram_loader = histogram_loader
@@ -114,12 +88,6 @@ def get_training_set():
 	trainloader = DataLoader(train_data, batch_size=16,shuffle=True)
 	
 	return trainloader
-
-def get_val_set():
-	val_data  = valset()
-	valloader = DataLoader(val_data, batch_size=1,shuffle=False)
-	
-	return valloader
 
 def get_test_set():
 	test_data  = testset()

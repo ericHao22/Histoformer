@@ -45,8 +45,6 @@ opt = parser.parse_args()
 
 ### Data ###
 trainloader= get_training_set()
-valloader= get_val_set()
-testloader= get_test_set()
 
 ### Model ###
 model = Histoformer(embed_dim=opt.embed_dim,token_projection='linear',token_mlp='TwoDCFF')
