@@ -10,6 +10,7 @@ from torch.utils.data import Dataset, DataLoader
 def list_file_paths(directory):
     file_list = []
     for root, dirs, files in os.walk(directory):
+        dirs.sort()
         for file in sorted(files):
             file_list.append(os.path.join(root, file))
     return file_list
@@ -82,7 +83,27 @@ class testset(Dataset):
 
     def __len__(self):
         return len(self.images)
+    
+class evaset(Dataset):
+    def __init__(self, test_dir, result_dir):
+        self.images = list_file_paths(os.path.join(test_dir, 'input'))
+        self.results = list_file_paths(result_dir)
 
+    def __getitem__(self, index):
+        single_img_np = self.images[index]
+        single_label_np = self.get_gt_image_path(single_img_np)
+        single_result_np = self.results[index]
+        
+        return single_img_np, single_label_np, single_result_np
+
+    def __len__(self):
+        return len(self.images)
+    
+    def get_gt_image_path(self, input_image_path):
+        new_path = re.sub(r'input/([^/]+)/Haze-[123]/', r'gt/\1/', input_image_path)
+        new_path = new_path.replace('_synt', '')
+
+        return new_path
 
 def get_training_set():
 	train_data  = trainset()
@@ -95,3 +116,9 @@ def get_test_set(test_dir):
 	testloader = DataLoader(test_data, batch_size=1,shuffle=False)
 	
 	return testloader
+
+def get_eva_set(test_dir, result_dir):
+	eva_data  = evaset(test_dir, result_dir)
+	evaloader = DataLoader(eva_data, batch_size=1, shuffle=False)
+	
+	return evaloader
