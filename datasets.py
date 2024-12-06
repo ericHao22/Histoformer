@@ -1,4 +1,5 @@
 import re
+import cv2
 import os
 import numpy as np
 import torch
@@ -29,6 +30,23 @@ def histogram_loader(path):
     RGB = np.vstack((R_pdf,G_pdf,B_pdf))
     return RGB
 
+def resize_image(path):
+    image = cv2.imread(path)
+    height, width, _ = image.shape
+
+    if (height == 720 and width == 1280):
+        return
+
+    new_width = int(height * 16 / 9)
+    left = (width - new_width) // 2
+    right = left + new_width
+    top = 0
+    bottom = height
+    
+    cropped_image = image[top:bottom, left:right]
+    resized_image = cv2.resize(cropped_image, (1280, 720))
+
+    cv2.imwrite(path, resized_image)
 
 class trainset(Dataset):
     def __init__(self):
@@ -40,6 +58,10 @@ class trainset(Dataset):
 
         single_img = self.images[index]
         single_label = self.get_gt_image_path(single_img)
+
+        resize_image(single_img)
+        resize_image(single_label)
+
         img_hist = self.histogram_loader(single_img)
         label_hist = self.histogram_loader(single_label)
         
@@ -72,6 +94,10 @@ class testset(Dataset):
 
         single_img = self.images[index]
         single_label = self.label[index]
+
+        resize_image(single_img)
+        resize_image(single_label)
+        
         img_hist = self.histogram_loader(single_img)
         label_hist = self.histogram_loader(single_label)
         img_hist = torch.Tensor(img_hist)
@@ -90,6 +116,15 @@ class evaset(Dataset):
         self.results = list_file_paths(result_dir)
 
     def __getitem__(self, index):
+
+        single_img = self.images[index]
+        single_label = self.get_target_image_path(single_img)
+        single_result = self.results[index]
+
+        resize_image(single_img)
+        resize_image(single_label)
+        resize_image(single_result)
+
         single_img_np = self.images[index]
         single_label_np = self.get_gt_image_path(single_img_np)
         single_result_np = self.results[index]
