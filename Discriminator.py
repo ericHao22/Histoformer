@@ -41,7 +41,7 @@ class Discriminator(nn.Module): #有改後面幾層
             nn.ReLU()
             )
         self.fc = nn.Sequential(
-            nn.Linear(32 * 70, 1024), 
+            nn.Linear(32 * 11 * 20, 1024), 
             nn.Linear(1024, 1),
             nn.Sigmoid()
             )
