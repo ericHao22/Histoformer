@@ -45,8 +45,6 @@ opt = parser.parse_args()
 
 ### Data ###
 trainloader= get_training_set()
-valloader= get_val_set()
-testloader= get_test_set()
 
 ### Model ###
 model = Histoformer(embed_dim=opt.embed_dim,token_projection='linear',token_mlp='TwoDCFF')
@@ -222,7 +220,7 @@ for e in range(opt.epochs):
             print('epoch: {} , batch: {}, loss: {}'.format(e + 1+200, i + 1, loss.data))
 
 
-    if (e+1)%10 == 0 or (e+1+200)>150 or e==0:
+    if (e+1)%10 == 0 or e==0:
         torch.save({'state_dict': model.state_dict(),
         'optimizer' : optimizer.state_dict()
         }, os.path.join(opt.save_dir,"Histoformer-PQR_{}_modifyloss.pth".format(e+1))) 
