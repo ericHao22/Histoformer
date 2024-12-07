@@ -43,12 +43,12 @@ opt = parser.parse_args()
 
 #
 model = Histoformer(embed_dim=opt.embed_dim,token_projection='linear',token_mlp='TwoDCFF').cuda()
-net_g = Generator().cuda()
+# net_g = Generator().cuda()
 checkpoint = torch.load(os.path.join(opt.save_dir,'Histoformer-PQR_288_modifyloss.pth'))
-checkpoint_net_g= torch.load(os.path.join(opt.save_dir,'Histoformer-PQR_netG_288_modifyloss.pth'))
+# checkpoint_net_g= torch.load(os.path.join(opt.save_dir,'Histoformer-PQR_netG_288_modifyloss.pth'))
 # # 讀取模型權重
 model.load_state_dict(checkpoint['state_dict'])
-net_g.load_state_dict(checkpoint_net_g['state_dict'])
+# net_g.load_state_dict(checkpoint_net_g['state_dict'])
 
 testloader= get_test_set(opt.test_dir)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -59,8 +59,6 @@ with torch.no_grad():  #如果沒有這行，那下面在取值的時候要用.d
         labels = labels.to(device)
         
         model.eval()
-        net_g = net_g.to(device)
-        net_g.eval()
         # t0 = time.time()
         pred_img = model(inputs)
 
@@ -73,16 +71,6 @@ with torch.no_grad():  #如果沒有這行，那下面在取值的時候要用.d
         # print('type(RGB_hs_img):', type(RGB_hs_img)) # <class 'numpy.ndarray'>
         # print('RGB_hs_img.shape:', RGB_hs_img.shape) # (300, 400, 3)
         
-        RGB_hs_img = align_to_four(RGB_hs_img)
-        RGB_hs_img = npTOtensor(RGB_hs_img)
-        # print('RGB_hs_img',RGB_hs_img.shape)
-        img_gan = net_g(RGB_hs_img)
-        # print('img_gan:',img_gan.shape)
-        img_gan = img_gan.cpu().data
-        img_gan = img_gan.numpy().transpose((0, 2, 3, 1))
-        img_gan = img_gan[0, :, :, :]*255.
-        print(ori_img[0][53:],img_gan.shape)
-        
         current_dirname = os.path.dirname(ori_img[0]).replace(os.path.join(opt.test_dir, 'input/'), '')
         save_dirname = os.path.join(opt.save_image_dir, current_dirname)
 
@@ -90,4 +78,6 @@ with torch.no_grad():  #如果沒有這行，那下面在取值的時候要用.d
             os.makedirs(save_dirname)
 
         filename = os.path.basename(ori_img[0])
-        cv2.imwrite(os.path.join(save_dirname, filename), img_gan) #[34:]可能會要根據路徑的長度做更改
+        cv2.imwrite(os.path.join(save_dirname, filename), RGB_hs_img) #[34:]可能會要根據路徑的長度做更改
+
+        print(filename, RGB_hs_img.shape)
