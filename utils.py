@@ -7,49 +7,49 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 
 
-def hist_match(image_path,image_path_hs,out_R,out_G,out_B):   
-    asli = cv2.imread(image_path)
-    hs = cv2.imread(image_path_hs)
-    result = np.copy(asli)
-    R_hist, R_bins = np.histogram(asli[:, :, 2], bins=256, range=(0, 256)) 
-    G_hist, G_bins = np.histogram(asli[:, :, 1], bins=256, range=(0, 256))
-    B_hist, B_bins = np.histogram(asli[:, :, 0], bins=256, range=(0, 256))
-    asli_B = asli[:,:,0]
-    asli_G = asli[:,:,1]
-    asli_R = asli[:,:,2]
-    asli_shape_B = asli_B.shape    
-    asli_shape_G = asli_G.shape 
-    asli_shape_R = asli_R.shape 
-    asli_B = asli_B.ravel()
-    asli_G = asli_G.ravel()
-    asli_R = asli_R.ravel()
+def hist_match(input_img_path, label_img_path, output_R_PDF, output_G_PDF, output_B_PDF):   
+    input_img = cv2.imread(input_img_path)
+    label_img = cv2.imread(label_img_path)
+    result = np.copy(input_img)
+    input_R_hist, _ = np.histogram(input_img[:, :, 2], bins=256, range=(0, 256)) 
+    input_G_hist, _ = np.histogram(input_img[:, :, 1], bins=256, range=(0, 256))
+    input_B_hist, _ = np.histogram(input_img[:, :, 0], bins=256, range=(0, 256))
+    input_B = input_img[:,:,0]
+    input_G = input_img[:,:,1]
+    input_R = input_img[:,:,2]
+    input_B_shape = input_B.shape    
+    input_G_shape = input_G.shape 
+    input_R_shape = input_R.shape 
+    input_B = input_B.ravel()
+    input_G = input_G.ravel()
+    input_R = input_R.ravel()
 
     values = np.array(range(0,256),dtype=np.uint8)
     try:
-        o_values_B, bin_idx_B, o_counts_B = np.unique(asli_B, return_inverse=True,return_counts=True)
-        o_values_G, bin_idx_G, o_counts_G = np.unique(asli_G, return_inverse=True,return_counts=True)
-        o_values_R, bin_idx_R, o_counts_R = np.unique(asli_R, return_inverse=True,return_counts=True)
+        _, i_bin_idx_B, i_counts_B = np.unique(input_B, return_inverse=True,return_counts=True)
+        _, i_bin_idx_G, i_counts_G = np.unique(input_G, return_inverse=True,return_counts=True)
+        _, i_bin_idx_R, i_counts_R = np.unique(input_R, return_inverse=True,return_counts=True)
 
-        o_quantiles_B = np.cumsum(o_counts_B).astype(np.float64)
+        i_quantiles_B = np.cumsum(i_counts_B).astype(np.float64)
+        i_quantiles_B /= i_quantiles_B[-1]
+        i_quantiles_G = np.cumsum(i_counts_G).astype(np.float64)
+        i_quantiles_G /= i_quantiles_G[-1]
+        i_quantiles_R = np.cumsum(i_counts_R).astype(np.float64)
+        i_quantiles_R /= i_quantiles_R[-1]
+        o_quantiles_B = np.cumsum((output_B_PDF.squeeze(0)*sum(input_B_hist)).cpu().detach().numpy().tolist()).astype(np.float64)
         o_quantiles_B /= o_quantiles_B[-1]
-        o_quantiles_G = np.cumsum(o_counts_G).astype(np.float64)
+        o_quantiles_G = np.cumsum((output_G_PDF.squeeze(0)*sum(input_G_hist)).cpu().detach().numpy().tolist()).astype(np.float64)
         o_quantiles_G /= o_quantiles_G[-1]
-        o_quantiles_R = np.cumsum(o_counts_R).astype(np.float64)
+        o_quantiles_R = np.cumsum((output_R_PDF.squeeze(0)*sum(input_R_hist)).cpu().detach().numpy().tolist()).astype(np.float64)
         o_quantiles_R /= o_quantiles_R[-1]
-        b_quantiles = np.cumsum((out_B.squeeze(0)*sum(B_hist)).cpu().detach().numpy().tolist()).astype(np.float64)
-        b_quantiles /= b_quantiles[-1]
-        g_quantiles = np.cumsum((out_G.squeeze(0)*sum(G_hist)).cpu().detach().numpy().tolist()).astype(np.float64)
-        g_quantiles /= g_quantiles[-1]
-        r_quantiles = np.cumsum((out_R.squeeze(0)*sum(R_hist)).cpu().detach().numpy().tolist()).astype(np.float64)
-        r_quantiles /= r_quantiles[-1]
-        interp_t_valuesB = np.interp(o_quantiles_B, b_quantiles, values) #, b_values
-        interp_t_valuesG = np.interp(o_quantiles_G, g_quantiles, values)
-        interp_t_valuesR = np.interp(o_quantiles_R, r_quantiles, values)
-        result[:,:,0] = interp_t_valuesB[bin_idx_B].reshape(asli_shape_B)
-        result[:,:,1] = interp_t_valuesG[bin_idx_G].reshape(asli_shape_G)
-        result[:,:,2] = interp_t_valuesR[bin_idx_R].reshape(asli_shape_R)
+        interp_t_values_B = np.interp(i_quantiles_B, o_quantiles_B, values) #, b_values
+        interp_t_values_G = np.interp(i_quantiles_G, o_quantiles_G, values)
+        interp_t_values_R = np.interp(i_quantiles_R, o_quantiles_R, values)
+        result[:,:,0] = interp_t_values_B[i_bin_idx_B].reshape(input_B_shape)
+        result[:,:,1] = interp_t_values_G[i_bin_idx_G].reshape(input_G_shape)
+        result[:,:,2] = interp_t_values_R[i_bin_idx_R].reshape(input_R_shape)
 
-        return result, hs
+        return result, label_img
     except ValueError:
         pass
 
