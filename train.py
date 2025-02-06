@@ -144,11 +144,14 @@ for e in range(opt.epochs):
         optimizer.step()
 
         # print('i',i)
-        if i%20==0:
+        if (i + 1) % 750 == 0 or i == 0:
             print('epoch: {} , batch: {}, loss: {}'.format(e + 1+200, i + 1, loss.data))
+            torch.save(
+                {'state_dict': model.state_dict(), 'optimizer': optimizer.state_dict()},
+                os.path.join(opt.save_dir, 'Histoformer-PQR_last_modifyloss.pth')
+            )
 
-
-    if (e+1)%10 == 0 or e==0:
+    if (e + 1) % 1 == 0 or e == 0:
         torch.save({'state_dict': model.state_dict(),
         'optimizer' : optimizer.state_dict()
         }, os.path.join(opt.save_dir,"Histoformer-PQR_{}_modifyloss.pth".format(e+1)))
