@@ -138,7 +138,7 @@ for e in range(opt.epochs):
         ssim_loss = sum(ssim_loss_list)
         ssim_loss = ssim_loss/len(ori_img)
 
-        RGB_loss = torch.mean((2*R_loss) + (0.5*G_loss) + (1*B_loss))
+        RGB_loss = torch.mean((1*R_loss) + (1*G_loss) + (1*B_loss))
 
         loss = RGB_loss + (0.6*mae_loss) + (0.6*percep_loss) + (0.4*ssim_loss)
             
