@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
-import math
+
 # from PIL import Image
 
 from timm.models.layers import DropPath, trunc_normal_
@@ -16,106 +16,6 @@ from timm.models.layers import DropPath, trunc_normal_
 from torch import einsum
 from torch.nn import init
 from torchvision import models 
-##############Intra_SA#######################
-class Intra_Attention(nn.Module):
-    def __init__(self, head_num):
-        super(Intra_Attention, self).__init__()
-        self.num_attention_heads = head_num
-        self.softmax = nn.Softmax(dim=-1)
-
-    def transpose_for_scores(self, x):
-        B, N, C = x.size()
-        # print('x.size()',x.size(),'self.num_attention_heads',self.num_attention_heads)
-        attention_head_size = int(C / self.num_attention_heads)
-        # print('attention_head_size',attention_head_size)
-        new_x_shape = x.size()[:-1] + (self.num_attention_heads, attention_head_size)
-        x = x.view(*new_x_shape)
-        # print('x',x.shape)
-        x = x.permute(0, 2, 3, 1).contiguous()
-        x_5 = torch.unsqueeze(x, -1)###########intra key point 37 1 32 256 1
-        return x_5
-
-    def forward(self, query_layer, key_layer, value_layer):
-        # print('query_layer',query_layer.size())
-        B, N, C = query_layer.size() #x.size() torch.Size([37, 256, 32]) self.num_attention_heads 1
-        query_layer = self.transpose_for_scores(query_layer)
-        # print('query_layer',query_layer.shape)#query_layer torch.Size([37, 1, 32, 256,1])
-        key_layer = self.transpose_for_scores(key_layer)#torch.Size([37, 1, 32, 256, 1])
-        # print('key_layer',key_layer.shape)
-        value_layer = self.transpose_for_scores(value_layer)#torch.Size([37, 1, 32, 256, 1])
-        # print('value_layer',value_layer.shape)
-        attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))  #[37, 1, 32, 256,256]
-        # print('attention_scores',attention_scores.shape)
-        _, _, d, _ ,_ = query_layer.size()
-        attention_scores = attention_scores / math.sqrt(d)
-        attention_probs = self.softmax(attention_scores)
-        context_layer = torch.matmul(attention_probs, value_layer) #[37, 1, 32, 256,1]
-        # print('context_layer',context_layer.shape)
-        #####key point
-        context_layer = torch.squeeze(context_layer, -1) #[37, 1, 32, 256]
-        # print('context_layersq',context_layer.shape)
-        context_layer = context_layer.permute(0, 3, 1, 2).contiguous()
-        # print('context_layer2',context_layer.shape)
-        new_context_layer_shape = context_layer.size()[:-2] + (C,)
-        # print('new_context_layer_shape',new_context_layer_shape)
-        attention_out = context_layer.view(*new_context_layer_shape)
-        # print('attention_out',attention_out.shape)
-        return attention_out
-class MlpINTRA(nn.Module):
-    def __init__(self, hidden_size):
-        super(MlpINTRA, self).__init__()
-        self.fc1 = nn.Linear(hidden_size, 4*hidden_size)
-        self.fc2 = nn.Linear(4*hidden_size, hidden_size)
-        self.act_fn = torch.nn.functional.gelu
-        self._init_weights()
-
-    def _init_weights(self):
-        nn.init.xavier_uniform_(self.fc1.weight)
-        nn.init.xavier_uniform_(self.fc2.weight)
-        nn.init.normal_(self.fc1.bias, std=1e-6)
-        nn.init.normal_(self.fc2.bias, std=1e-6)
-
-    def forward(self, x):
-        x = self.fc1(x)
-        x = self.act_fn(x)
-        x = self.fc2(x)
-        return x
-
-
-
-class Intra_SA(nn.Module):
-    def __init__(self, dim, head_num):
-        super(Intra_SA, self).__init__()
-        self.hidden_size = dim ######dim/2
-        self.head_num = head_num
-        self.attention_norm = nn.LayerNorm(dim)
-        self.conv_input = nn.Conv1d(dim, dim, kernel_size=1, padding=0)
-        self.qkv_local_h = nn.Linear(self.hidden_size, self.hidden_size * 3)  # qkv_h
-        self.fuse_out = nn.Conv1d(dim, dim, kernel_size=1, padding=0)
-        self.ffn_norm = nn.LayerNorm(dim)
-        self.ffn = MlpINTRA(dim)
-        self.attn = Intra_Attention(head_num=self.head_num)
-    def forward(self, x):
-        x = x.permute(0,2,1)
-        sh = x
-        B, C, H = x.size()
-        x_input = self.conv_input(x)###need like restormer stripformer
-        feature_h = (x_input).permute(0, 2, 1).contiguous() #BHC
-        qkv_h = torch.chunk(self.qkv_local_h(feature_h), 3, dim=2)
-        q_h, k_h, v_h = qkv_h[0], qkv_h[1], qkv_h[2]
-        attention_output_h = self.attn(q_h, k_h, v_h)
-        attention_output_h = attention_output_h.view(B, H, C).permute(0, 2, 1).contiguous()
-        attn_out = attention_output_h
-        x = attn_out + sh
-        x = x.view(B, C, H).permute(0, 2, 1).contiguous()
-        h = x
-        x = self.ffn_norm(x)
-        x = self.ffn(x)##MLP
-        x = x + h
-        x = x.permute(0, 2, 1).contiguous()
-        x = x.view(B, C, H)
-        return x
-
 ########### Downsample/Upsample #############
 class Downsample(nn.Module):
     def __init__(self, in_channel, out_channel):
@@ -168,7 +68,26 @@ class InputProjection(nn.Module):
         if self.norm is not None:
             x = self.norm(x)
         return x
-    
+class CALayer(nn.Module):
+    def __init__(self, channel, reduction=16, bias=False):
+        super(CALayer, self).__init__()
+        # global average pooling: feature --> point
+        self.avg_pool = nn.AdaptiveAvgPool1d(1)
+        # feature channel downscale and upscale --> channel weight
+        self.conv_du = nn.Sequential(
+                nn.Conv1d(channel, channel // reduction, 1, padding=0, bias=bias),
+                nn.ReLU(inplace=True),
+                nn.Conv1d(channel // reduction, channel, 1, padding=0, bias=bias),
+                nn.Sigmoid()
+        )
+
+    def forward(self, x):###b c n 
+        # print('CALayer',x.shape)
+        y = self.avg_pool(x)
+        # print('avg',y.shape)
+        y = self.conv_du(y)
+        # print('yconvdu',y.shape)
+        return x * y
 class OutputProjection(nn.Module):
     def __init__(self, in_channel=64, out_channel=3, kernel_size=3, stride=1, norm_layer=None,act_layer=None):
         super().__init__()
@@ -194,69 +113,29 @@ class OutputProjection(nn.Module):
 
 
 ########### Multi-head Self-Attention #############
-class LinearProjection(nn.Module):
-    def __init__(self, dim, heads = 8, dim_head = 64, dropout = 0., bias=True):
-        super().__init__()
-        inner_dim = dim_head *  heads
-        self.heads = heads
-        self.to_q = nn.Linear(dim, inner_dim, bias = bias)
-        self.to_kv = nn.Linear(dim, inner_dim * 2, bias = bias)
-        self.dim = dim
-        self.inner_dim = inner_dim
-        self.conv_input = nn.Conv1d(dim, dim, kernel_size=1, padding=0)
 
-    def forward(self, x, attn_kv=None):
-        B_, N, C = x.shape
-        x = x.permute(0,2,1).contiguous()##bcn
-        
-        x_input = self.conv_input(x)###need like restormer stripformer
-        x_input = x_input.permute(0,2,1).contiguous()##b n c
-        attn_kv = x_input if attn_kv is None else attn_kv
-        q_inter = self.to_q(x_input).reshape(B_, N, 1, self.heads, C // self.heads).permute(2, 0, 3, 4, 1)
+def conv(in_channels, out_channels, kernel_size, bias=False, stride = 1):
+    return nn.Conv1d(
+        in_channels, out_channels, kernel_size,
+        padding=(kernel_size//2), bias=bias, stride = stride)
+class CAB(nn.Module):
+    def __init__(self, n_feat, kernel_size, reduction, bias, act):
+        super(CAB, self).__init__()
+        modules_body = []
+        modules_body.append(conv(n_feat, n_feat, kernel_size, bias=bias))
+        modules_body.append(act)
+        modules_body.append(conv(n_feat, n_feat, kernel_size, bias=bias))
 
-        kv_inter = self.to_kv(attn_kv).reshape(B_, N, 2, self.heads, C // self.heads).permute(2, 0, 3, 4, 1)
-        
-        
-        q_inter = q_inter[0]
-        k_inter, v_inter = kv_inter[0], kv_inter[1] 
-        
-        return q_inter, k_inter, v_inter
+        self.CA = CALayer(n_feat, reduction, bias=bias)
+        self.body = nn.Sequential(*modules_body)
 
-class Attention(nn.Module):
-    def __init__(self, dim, num_heads, token_projection='linear', qkv_bias=True, qk_scale=None, attn_drop=0., proj_drop=0.,se_layer=False):
+    def forward(self, x):
+        x = x.permute(0, 2, 1) ###b c n 
+        res = self.body(x)
+        res = self.CA(res)
+        res += x
+        return res
 
-        super().__init__()
-        self.dim = dim
-        self.num_heads = num_heads
-        head_dim = dim // num_heads
-        self.scale = qk_scale or head_dim ** -0.5
-
-        if token_projection =='linear':
-            self.qkv = LinearProjection(dim,num_heads,dim//num_heads,bias=qkv_bias)
-        
-        self.token_projection = token_projection
-        self.attn_drop = nn.Dropout(attn_drop)
-        self.proj = nn.Linear(dim, dim)
-        self.proj_drop = nn.Dropout(proj_drop)
-        self.se_layer = SELayer(dim) if se_layer else nn.Identity()
-
-        self.softmax = nn.Softmax(dim=-1)
-    def forward(self, x, attn_kv=None, mask=None):
-        B_, N, C = x.shape
-        q_inter, k_inter, v_inter = self.qkv(x,attn_kv)
-
-        scale_inter = N** -0.5
-        q_inter = q_inter * scale_inter
-        attn_inter = (q_inter @ k_inter.transpose(-2, -1))
-        attn_inter = self.softmax(attn_inter)
-        attn_inter = self.attn_drop(attn_inter)
-
-        x_inter = (attn_inter @ v_inter).transpose(1, 2).reshape(B_, N, C)
-        x_inter = self.proj(x_inter)
-        x_inter = self.se_layer(x_inter)
-        x_inter = self.proj_drop(x_inter)
-
-        return x_inter
 
 
 ########### Feed-Forward Network #############
@@ -299,29 +178,34 @@ class TransformerBlock(nn.Module):
         self.token_mlp = token_mlp
         
         # self.norm1 = norm_layer(dim)
-        self.attn = Attention(
-            dim, num_heads=num_heads, qkv_bias=qkv_bias,
-            qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop,
-            token_projection=token_projection)
-
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
         self.norm3 = norm_layer(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
-        self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim,act_layer=act_layer, drop=drop) if token_mlp=='ffn' else TwoDCFF(dim,mlp_hidden_dim,act_layer=act_layer, drop=drop)
+        self.mlp = TwoDCFF(dim,mlp_hidden_dim,act_layer=act_layer, drop=drop)
         # self.intra_block = Intra_SA(dim, num_heads)
+        self.CAB = CAB(dim, kernel_size=3, reduction=4, bias=False, act=nn.PReLU())
+
     def forward(self, x, mask=None):
         # shortcut = x #  B N C 10 256 32
         # B_, N, C = x.shape
+        # # print('shortcut',shortcut.shape)
         # x = self.norm1(x)#BNC
         # hx = self.intra_block(x)
         # hx = hx.permute(0, 2, 1)
+        # # print('hx',hx.size())
+        # # intra,_ = self.attn(x, mask=None)
+        # # print('intra',intra.shape)
         # x = shortcut + self.drop_path(hx)
         
-        shortcut_inter = x
+        shortcut_cha = x
+        # print('shortcut_cha',shortcut_cha.shape)
         x = self.norm2(x)
-        inter = self.attn(x, mask=None)
-        x = shortcut_inter + self.drop_path(inter)
+        x = self.CAB(x)
+        ###bcn
+        # print('CAB',x.shape)
+        x = x.permute(0, 2, 1)##bnc
+        x = shortcut_cha + self.drop_path(x)
 
         x = x + self.drop_path(self.mlp(self.norm3(x)))
         
@@ -388,8 +272,8 @@ class Histoformer(nn.Module): #[2, 2, 2, 2, 2, 2, 2, 2, 2] [1, 2, 8, 8, 8, 8, 8,
 
         # Input/Output
         self.input_projection = InputProjection(in_channel=in_chans, out_channel=embed_dim, kernel_size=3, stride=1, act_layer=nn.LeakyReLU)
-        self.output_projection = OutputProjection(in_channel=2*embed_dim, out_channel=in_chans, kernel_size=3, stride=1)
-        
+        self.output_projection = OutputProjection(in_channel=embed_dim, out_channel=in_chans, kernel_size=3, stride=1)
+        self.finalconv = nn.Conv1d(in_channels=2*embed_dim, out_channels=embed_dim, kernel_size=1, stride=1)
         # Encoder
         self.encoderlayer_0 = BasicUformerLayer(dim=embed_dim,
                             output_dim=embed_dim,
@@ -427,22 +311,10 @@ class Histoformer(nn.Module): #[2, 2, 2, 2, 2, 2, 2, 2, 2] [1, 2, 8, 8, 8, 8, 8,
                             use_checkpoint=use_checkpoint,
                             token_projection=token_projection,token_mlp=token_mlp,se_layer=se_layer)
         self.dowsample_2 = dowsample(embed_dim*4, embed_dim*8)
-        self.encoderlayer_3 = BasicUformerLayer(dim=embed_dim*8,
-                            output_dim=embed_dim*8,
-                            depth=depths[3],
-                            num_heads=num_heads[3],
-                            mlp_ratio=self.mlp_ratio,
-                            qkv_bias=qkv_bias, qk_scale=qk_scale,
-                            drop=drop_rate, attn_drop=attn_drop_rate,
-                            drop_path=enc_dpr[sum(depths[:3]):sum(depths[:4])],
-                            norm_layer=norm_layer,
-                            use_checkpoint=use_checkpoint,
-                            token_projection=token_projection,token_mlp=token_mlp,se_layer=se_layer)
-        self.dowsample_3 = dowsample(embed_dim*8, embed_dim*16)
-        
+
         # Bottleneck
-        self.conv = BasicUformerLayer(dim=embed_dim*16,
-                            output_dim=embed_dim*16,
+        self.conv = BasicUformerLayer(dim=embed_dim*8,
+                            output_dim=embed_dim*8,
                             depth=depths[4],
                             num_heads=num_heads[4],
                             mlp_ratio=self.mlp_ratio,
@@ -454,9 +326,9 @@ class Histoformer(nn.Module): #[2, 2, 2, 2, 2, 2, 2, 2, 2] [1, 2, 8, 8, 8, 8, 8,
                             token_projection=token_projection,token_mlp=token_mlp,se_layer=se_layer)
 
         # Decoder
-        self.upsample_0 = upsample(embed_dim*16, embed_dim*8)
-        self.decoderlayer_0 = BasicUformerLayer(dim=embed_dim*16,
-                            output_dim=embed_dim*16,
+        self.upsample_0 = upsample(embed_dim*8, embed_dim*4)
+        self.decoderlayer_0 = BasicUformerLayer(dim=embed_dim*8,
+                            output_dim=embed_dim*8,
                             depth=depths[5],
                             num_heads=num_heads[5],
                             mlp_ratio=self.mlp_ratio,
@@ -466,9 +338,9 @@ class Histoformer(nn.Module): #[2, 2, 2, 2, 2, 2, 2, 2, 2] [1, 2, 8, 8, 8, 8, 8,
                             norm_layer=norm_layer,
                             use_checkpoint=use_checkpoint,
                             token_projection=token_projection,token_mlp=token_mlp,se_layer=se_layer)
-        self.upsample_1 = upsample(embed_dim*16, embed_dim*4)
-        self.decoderlayer_1 = BasicUformerLayer(dim=embed_dim*8,
-                            output_dim=embed_dim*8,
+        self.upsample_1 = upsample(embed_dim*8, embed_dim*2)
+        self.decoderlayer_1 = BasicUformerLayer(dim=embed_dim*4,
+                            output_dim=embed_dim*4,
                             depth=depths[6],
                             num_heads=num_heads[6],
                             mlp_ratio=self.mlp_ratio,
@@ -478,9 +350,9 @@ class Histoformer(nn.Module): #[2, 2, 2, 2, 2, 2, 2, 2, 2] [1, 2, 8, 8, 8, 8, 8,
                             norm_layer=norm_layer,
                             use_checkpoint=use_checkpoint,
                             token_projection=token_projection,token_mlp=token_mlp,se_layer=se_layer)
-        self.upsample_2 = upsample(embed_dim*8, embed_dim*2)
-        self.decoderlayer_2 = BasicUformerLayer(dim=embed_dim*4,
-                            output_dim=embed_dim*4,
+        self.upsample_2 = upsample(embed_dim*4, embed_dim*1)
+        self.decoderlayer_2 = BasicUformerLayer(dim=embed_dim*2,
+                            output_dim=embed_dim*2,
                             depth=depths[7],
                             num_heads=num_heads[7],
                             mlp_ratio=self.mlp_ratio,
@@ -490,19 +362,6 @@ class Histoformer(nn.Module): #[2, 2, 2, 2, 2, 2, 2, 2, 2] [1, 2, 8, 8, 8, 8, 8,
                             norm_layer=norm_layer,
                             use_checkpoint=use_checkpoint,
                             token_projection=token_projection,token_mlp=token_mlp,se_layer=se_layer)
-        self.upsample_3 = upsample(embed_dim*4, embed_dim)
-        self.decoderlayer_3 = BasicUformerLayer(dim=embed_dim*2,
-                            output_dim=embed_dim*2,
-                            depth=depths[8],
-                            num_heads=num_heads[8],
-                            mlp_ratio=self.mlp_ratio,
-                            qkv_bias=qkv_bias, qk_scale=qk_scale,
-                            drop=drop_rate, attn_drop=attn_drop_rate,
-                            drop_path=dec_dpr[sum(depths[5:8]):sum(depths[5:9])],
-                            norm_layer=norm_layer,
-                            use_checkpoint=use_checkpoint,
-                            token_projection=token_projection,token_mlp=token_mlp,se_layer=se_layer)
-
         self.apply(self._init_weights)
         self.softmax = nn.Softmax(2)
         
@@ -533,58 +392,33 @@ class Histoformer(nn.Module): #[2, 2, 2, 2, 2, 2, 2, 2, 2] [1, 2, 8, 8, 8, 8, 8,
         # print('conv2',conv2.size())
         pool2 = self.dowsample_2(conv2)
         # print('pool2',pool2.size())
-        conv3 = self.encoderlayer_3(pool2,mask=mask)
-        pool3 = self.dowsample_3(conv3)
-        
+
         # Bottleneck
-        conv4 = self.conv(pool3, mask=mask)
+        conv4 = self.conv(pool2, mask=mask)
         # print('conv4',conv4.size())
 
         #Decoder
         up0 = self.upsample_0(conv4)
-        deconv0 = torch.cat([up0,conv3],-1)
+        deconv0 = torch.cat([up0,conv2],-1)
         deconv0 = self.decoderlayer_0(deconv0,mask=mask)
         # print('deconv0',deconv0.size())
         
         up1 = self.upsample_1(deconv0)
-        deconv1 = torch.cat([up1,conv2],-1)
+        deconv1 = torch.cat([up1,conv1],-1)
         deconv1 = self.decoderlayer_1(deconv1,mask=mask)
         # print('deconv1',deconv1.size())
 
         up2 = self.upsample_2(deconv1)
-        deconv2 = torch.cat([up2,conv1],-1)
+        deconv2 = torch.cat([up2,conv0],-1)
         deconv2 = self.decoderlayer_2(deconv2,mask=mask)
         # print('deconv2',deconv2.size())
+        deconv3 = self.finalconv(deconv2.permute(0,2,1))
+        deconv3 = deconv3.permute(0,2,1)
+        # print('deconv3',deconv3.size())
 
-        up3 = self.upsample_3(deconv2)
-        deconv3 = torch.cat([up3,conv0],-1)
-        deconv3 = self.decoderlayer_3(deconv3,mask=mask)
-        
         # Output Projection
         y = self.output_projection(deconv3)
         x_y = self.softmax(x+y)   
         # print('x_y',x_y.size())     
         return  x_y
         
-
-
-
-# class SELayer(nn.Module):
-#     def __init__(self, channel, reduction=16):
-#         super(SELayer, self).__init__()
-#         self.avg_pool = nn.AdaptiveAvgPool1d(1)
-#         self.fc = nn.Sequential(
-#             nn.Linear(channel, channel // reduction, bias=False),
-#             nn.ReLU(inplace=True),
-#             nn.Linear(channel // reduction, channel, bias=False),
-#             nn.Sigmoid()
-#         )
-
-#     def forward(self, x):  # x: [B, N, C]
-#         x = torch.transpose(x, 1, 2)  # [B, C, N]
-#         b, c, _ = x.size()
-#         y = self.avg_pool(x).view(b, c)
-#         y = self.fc(y).view(b, c, 1)
-#         x = x * y.expand_as(x)
-#         x = torch.transpose(x, 1, 2)  # [B, N, C]
-#         return x
