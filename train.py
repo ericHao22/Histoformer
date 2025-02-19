@@ -11,7 +11,8 @@ import argparse
 from torch.autograd import Variable
 from timm.models.layers import DropPath, trunc_normal_
 from torchvision import models
-from torchvision import  transforms
+from torchvision import transforms
+from torchmetrics import StructuralSimilarityIndexMeasure
 
 from datasets import *
 from utils import *
@@ -54,10 +55,10 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 cuda = True if torch.cuda.is_available() else False
 
 model = model.cuda()
-net_d = Discriminator().cuda()
-net_g = Generator().cuda()
-net_d.apply(weights_init_normal)
-net_g.apply(weights_init_normal)
+# net_d = Discriminator().cuda()
+# net_g = Generator().cuda()
+# net_d.apply(weights_init_normal)
+# net_g.apply(weights_init_normal)
 
 #Load model
 # model = torch.load('/home/roger/rong/checkpoints/onlyinter/Histoformer-PQR_200_modifyloss.pth')
@@ -66,14 +67,13 @@ net_g.apply(weights_init_normal)
 
 ### Optimizer ###
 optimizer = torch.optim.AdamW(model.parameters(), lr=opt.lr, betas=(0.9, 0.999),eps=1e-8, weight_decay=opt.weight_decay) #
-optimizer_d = torch.optim.Adam(net_d.parameters(), lr=opt.lr, betas=(0.5, 0.999))
-optimizer_g = torch.optim.Adam(net_g.parameters(), lr=opt.lr, betas=(0.5, 0.999))
+# optimizer_d = torch.optim.Adam(net_d.parameters(), lr=opt.lr, betas=(0.5, 0.999))
+# optimizer_g = torch.optim.Adam(net_g.parameters(), lr=opt.lr, betas=(0.5, 0.999))
 
 ### Loss ###
-criterionGAN = GANLoss().cuda()
-criterionL1 = nn.L1Loss().cuda()
-perceploss = VGG19_PercepLoss().cuda()
-contentloss = VGG19_Content().cuda()#.eval()
+criterion_L1 = nn.L1Loss().cuda()
+criterion_percep = VGG19_PercepLoss().cuda()
+criterion_ssim = StructuralSimilarityIndexMeasure(data_range=1.0).cuda()
 
 weight_gan = 0.4
 
@@ -84,9 +84,7 @@ best_loss_v = 1e10
 Loss_avg=[]
 Loss_avg_v=[]
 
-
 for e in range(opt.epochs):
-    total_loss_g = 0
     torch.cuda.empty_cache()
     model.train()
     for i, (input_img, label_img, ori_img, hs_img) in enumerate(trainloader): #, hs_img
@@ -98,8 +96,10 @@ for e in range(opt.epochs):
         pred_img  = model(input_img)
         # exit()
 
-        loss_list=[]
+        mae_loss_list=[]
         percep_loss_list=[]
+        ssim_loss_list=[]
+
         hist_img_list=[]
         gt_img_list=[]
 
@@ -120,115 +120,40 @@ for e in range(opt.epochs):
             RGB_hs_img = RGB_hs_img.unsqueeze(0).cuda() #torch.Size([1, 3, 460, 620])
             gt = transforms.ToTensor()(gt0)
             gt = gt.unsqueeze(0).cuda()
-
-            hist_img_list.append(RGB_hs_img0)
-            gt_img_list.append(gt0)
             
-            loss_mae = criterionL1(RGB_hs_img, gt)
-            loss_percep = perceploss(RGB_hs_img,gt)
+            loss_mae = criterion_L1(RGB_hs_img, gt)
+            loss_percep = criterion_percep(RGB_hs_img,gt)
+            loss_ssim = 1 - criterion_ssim(RGB_hs_img, gt)
 
-            loss_list.append(loss_mae)
+            mae_loss_list.append(loss_mae)
             percep_loss_list.append(loss_percep) ###
+            ssim_loss_list.append(loss_ssim)
         
-        mae_loss = sum(loss_list)
+        mae_loss = sum(mae_loss_list)
         mae_loss = mae_loss/len(ori_img)
             
         percep_loss = sum(percep_loss_list) ###
         percep_loss = percep_loss/len(ori_img) ###
+        
+        ssim_loss = sum(ssim_loss_list)
+        ssim_loss = ssim_loss/len(ori_img)
 
-        RGB_loss = (2*R_loss)+(0.5*G_loss)+(1*B_loss)
-        loss = torch.mean(RGB_loss) 
+        RGB_loss = torch.mean((2*R_loss) + (0.5*G_loss) + (1*B_loss))
 
-        loss = loss + (0.6*mae_loss) + (0.6*percep_loss)
+        loss = RGB_loss + (0.6*mae_loss) + (0.6*percep_loss) + (0.4*ssim_loss)
             
         loss.backward()
         optimizer.step()
-            
-        for k in range(len(hist_img_list)):
-
-
-            RGB_hs_img0 = hist_img_list[k]
-            gt0 = gt_img_list[k]
-
-            RGB_hs_img1 = align_to_four(RGB_hs_img0)
-            RGB_hs_img1 = npTOtensor(RGB_hs_img1)
-            gt1 = align_to_four(gt0)
-            gt1 = npTOtensor(gt1)
-
-            ### forward
-            real_a = RGB_hs_img1
-            real_b = gt1
-
-            # print('real_a.shape:',real_a.shape) # ([1, 3, 460, 620])
-            # print('real_b.shape:',real_b.shape)
-            fake_b = net_g(real_a)
-            fake_b.data.clamp_(-1, 1)
-                
-            ######################
-            # (1) Update D network
-            ######################
-
-            optimizer_d.zero_grad()
-        
-            # train with fake
-            pred_fake = net_d(fake_b) #,real_a
-            loss_d_fake = criterionGAN(pred_fake, False)
-
-            # train with real
-            pred_real = net_d(real_b)
-            loss_d_real = criterionGAN(pred_real, True)
-        
-            # Combined D loss
-            loss_d = (loss_d_fake + loss_d_real) * 0.5
-
-            loss_d.backward(retain_graph=True) #retain_graph=True
-       
-            optimizer_d.step()
-                
-            ######################
-            # (2) Update G network
-            ######################
-                
-            content_loss1 = contentloss(fake_b,real_b,'relu1_1')
-            content_loss2 = contentloss(fake_b,real_b,'relu1_2')
-            content_loss3 = contentloss(fake_b,real_b,'relu2_1')
-            content_loss4 = contentloss(fake_b,real_b,'relu2_2')
-            loss_content = content_loss1 + content_loss2 + content_loss3 + content_loss4
-
-                
-            optimizer_g.zero_grad()
-
-            # First, G(A) should fake the discriminator
-            pred_fake = net_d(fake_b)
-            loss_g_gan = criterionGAN(pred_fake, True)
-
-            # Second, G(A) = B
-            loss_g_l1 = criterionL1(fake_b, real_b) 
-            # print('fake_b',fake_b.shape,real_b.shape)
-            loss_g = ((loss_g_gan + loss_g_l1)*weight_gan + loss_content*0.3) #+ mae_percep_loss*(1-weight_gan)
-            total_loss_g += loss_g.item()
-
-            loss_g.backward()
-            optimizer_g.step()
-
-        loss_gan = torch.tensor(total_loss_g)/len(ori_img)
-
-        loss =  loss + loss_gan #
 
         # print('i',i)
-        if i%20==0:
+        if (i + 1) % 750 == 0 or i == 0:
             print('epoch: {} , batch: {}, loss: {}'.format(e + 1+200, i + 1, loss.data))
+            torch.save(
+                {'state_dict': model.state_dict(), 'optimizer': optimizer.state_dict()},
+                os.path.join(opt.save_dir, 'Histoformer-PQR_last_modifyloss.pth')
+            )
 
-
-    if (e+1)%10 == 0 or e==0:
+    if (e + 1) % 1 == 0 or e == 0:
         torch.save({'state_dict': model.state_dict(),
         'optimizer' : optimizer.state_dict()
-        }, os.path.join(opt.save_dir,"Histoformer-PQR_{}_modifyloss.pth".format(e+1))) 
-                
-        torch.save({'state_dict': net_g.state_dict(),
-        'optimizer' : optimizer_g.state_dict()
-        }, os.path.join(opt.save_dir,"Histoformer-PQR_netG_{}_modifyloss.pth".format(e+1)))   
-
-        torch.save({'state_dict': net_d.state_dict(),
-        'optimizer' : optimizer_d.state_dict()
-        }, os.path.join(opt.save_dir,"Histoformer-PQR_netD_{}_modifyloss.pth".format(e+1)))   
+        }, os.path.join(opt.save_dir,"Histoformer-PQR_{}_modifyloss.pth".format(e+1)))
