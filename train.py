@@ -11,7 +11,8 @@ import argparse
 from torch.autograd import Variable
 from timm.models.layers import DropPath, trunc_normal_
 from torchvision import models
-from torchvision import  transforms
+from torchvision import transforms
+from torchmetrics import StructuralSimilarityIndexMeasure
 
 from datasets import *
 from utils import *
@@ -70,10 +71,9 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=opt.lr, betas=(0.9, 0.999),
 # optimizer_g = torch.optim.Adam(net_g.parameters(), lr=opt.lr, betas=(0.5, 0.999))
 
 ### Loss ###
-criterionGAN = GANLoss().cuda()
-criterionL1 = nn.L1Loss().cuda()
-perceploss = VGG19_PercepLoss().cuda()
-contentloss = VGG19_Content().cuda()#.eval()
+criterion_L1 = nn.L1Loss().cuda()
+criterion_percep = VGG19_PercepLoss().cuda()
+criterion_ssim = StructuralSimilarityIndexMeasure(data_range=1.0).cuda()
 
 weight_gan = 0.4
 
@@ -83,7 +83,6 @@ best_loss = 1e10
 best_loss_v = 1e10
 Loss_avg=[]
 Loss_avg_v=[]
-
 
 for e in range(opt.epochs):
     torch.cuda.empty_cache()
@@ -97,8 +96,10 @@ for e in range(opt.epochs):
         pred_img  = model(input_img)
         # exit()
 
-        loss_list=[]
+        mae_loss_list=[]
         percep_loss_list=[]
+        ssim_loss_list=[]
+
         hist_img_list=[]
         gt_img_list=[]
 
@@ -119,26 +120,27 @@ for e in range(opt.epochs):
             RGB_hs_img = RGB_hs_img.unsqueeze(0).cuda() #torch.Size([1, 3, 460, 620])
             gt = transforms.ToTensor()(gt0)
             gt = gt.unsqueeze(0).cuda()
-
-            hist_img_list.append(RGB_hs_img0)
-            gt_img_list.append(gt0)
             
-            loss_mae = criterionL1(RGB_hs_img, gt)
-            loss_percep = perceploss(RGB_hs_img,gt)
+            loss_mae = criterion_L1(RGB_hs_img, gt)
+            loss_percep = criterion_percep(RGB_hs_img,gt)
+            loss_ssim = 1 - criterion_ssim(RGB_hs_img, gt)
 
-            loss_list.append(loss_mae)
+            mae_loss_list.append(loss_mae)
             percep_loss_list.append(loss_percep) ###
+            ssim_loss_list.append(loss_ssim)
         
-        mae_loss = sum(loss_list)
+        mae_loss = sum(mae_loss_list)
         mae_loss = mae_loss/len(ori_img)
             
         percep_loss = sum(percep_loss_list) ###
         percep_loss = percep_loss/len(ori_img) ###
+        
+        ssim_loss = sum(ssim_loss_list)
+        ssim_loss = ssim_loss/len(ori_img)
 
-        RGB_loss = (2*R_loss)+(0.5*G_loss)+(1*B_loss)
-        loss = torch.mean(RGB_loss) 
+        RGB_loss = torch.mean((2*R_loss) + (0.5*G_loss) + (1*B_loss))
 
-        loss = loss + (0.6*mae_loss) + (0.6*percep_loss)
+        loss = RGB_loss + (0.6*mae_loss) + (0.6*percep_loss) + (0.4*ssim_loss)
             
         loss.backward()
         optimizer.step()
